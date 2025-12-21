@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정치편향무드등</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        .input-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        
+        input[type="url"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="url"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .result {
+            display: none;
+            margin-top: 30px;
+            padding: 25px;
+            border-radius: 15px;
+            background: #f8f9fa;
+        }
+        
+        .result.show {
+            display: block;
+        }
+        
+        .result-header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        
+        .tendency {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .tendency.progressive {
+            color: #2196F3;
+        }
+        
+        .tendency.conservative {
+            color: #F44336;
+        }
+        
+        .tendency.neutral, .tendency.mixed {
+            color: #9E9E9E;
+        }
+        
+        .confidence {
+            font-size: 1.2em;
+            color: #666;
+        }
+        
+        .scores {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 25px 0;
+        }
+        
+        .score-card {
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .score-card.progressive {
+            background: #E3F2FD;
+            border: 2px solid #2196F3;
+        }
+        
+        .score-card.conservative {
+            background: #FFEBEE;
+            border: 2px solid #F44336;
+        }
+        
+        .score-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .score-value {
+            font-size: 2.5em;
+            font-weight: bold;
+        }
+        
+        .score-card.progressive .score-value {
+            color: #2196F3;
+        }
+        
+        .score-card.conservative .score-value {
+            color: #F44336;
+        }
+        
+        .keywords-section {
+            margin-top: 25px;
+        }
+        
+        .keywords-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .keywords-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .keywords-group {
+            padding: 15px;
+            border-radius: 10px;
+        }
+        
+        .keywords-group.progressive {
+            background: #E3F2FD;
+        }
+        
+        .keywords-group.conservative {
+            background: #FFEBEE;
+        }
+        
+        .keywords-group-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .keywords-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .keyword-tag {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        
+        .keywords-group.progressive .keyword-tag {
+            border-color: #2196F3;
+        }
+        
+        .keywords-group.conservative .keyword-tag {
+            border-color: #F44336;
+        }
+        
+        .error {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            background: #FFEBEE;
+            border: 2px solid #F44336;
+            border-radius: 10px;
+            color: #C62828;
+            text-align: center;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #E3F2FD;
+            border-radius: 10px;
+            color: #1565C0;
+            font-size: 0.9em;
+        }
+        
+        .info strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            color: #667eea;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .input-mode {
+            display: none;
+        }
+        
+        .input-mode.active {
+            display: block;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 200px;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .char-count {
+            text-align: right;
+            color: #999;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        
+        .article-text-section {
+            margin-top: 25px;
+        }
+        
+        .article-text-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .article-text-box {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 0.95em;
+            line-height: 1.6;
+            color: #333;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .article-text-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .article-text-box::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        .article-text-box::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        
+        .article-text-box::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        .keywords-management {
+            margin-top: 40px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .keywords-management-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+            text-align: center;
+        }
+        
+        .keywords-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .keyword-group {
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 0; /* Allow flex shrinking */
+        }
+        
+        .keyword-group.progressive {
+            background: #E3F2FD;
+            border: 2px solid #2196F3;
+        }
+        
+        .keyword-group.conservative {
+            background: #FFEBEE;
+            border: 2px solid #F44336;
+        }
+        
+        .keyword-group-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .keyword-group.progressive .keyword-group-title {
+            color: #2196F3;
+        }
+        
+        .keyword-group.conservative .keyword-group-title {
+            color: #F44336;
+        }
+        
+        .keyword-count {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        
+        .keyword-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .keyword-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .keyword-group.progressive .keyword-btn {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .keyword-group.progressive .keyword-btn:hover {
+            background: #1976D2;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+        }
+        
+        .keyword-group.conservative .keyword-btn {
+            background: #F44336;
+            color: white;
+        }
+        
+        .keyword-group.conservative .keyword-btn:hover {
+            background: #D32F2F;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+        
+        .file-input-label {
+            display: block;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        
+        .keyword-group.progressive .file-input-label {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .keyword-group.progressive .file-input-label:hover {
+            background: #1976D2;
+        }
+        
+        .keyword-group.conservative .file-input-label {
+            background: #F44336;
+            color: white;
+        }
+        
+        .keyword-group.conservative .file-input-label:hover {
+            background: #D32F2F;
+        }
+        
+        .upload-success {
+            display: none;
+            margin-top: 10px;
+            padding: 8px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 5px;
+            font-size: 0.85em;
+            text-align: center;
+        }
+        
+        .upload-success.show {
+            display: block;
+        }
+        
+        /* Responsive: Stack keyword cards when screen is narrow */
+        @media screen and (max-width: 900px) {
+            .keywords-buttons {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+        }
+        
+        /* Mobile Responsive Styles */
+        @media screen and (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .subtitle {
+                font-size: 0.95em;
+            }
+            
+            .keywords-management {
+                padding: 15px;
+                margin-top: 20px;
+            }
+            
+            .keywords-management-title {
+                font-size: 1.2em;
+                margin-bottom: 15px;
+            }
+            
+            .keywords-buttons {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .keyword-group {
+                padding: 15px;
+            }
+            
+            .keyword-group-title {
+                font-size: 1em;
+                margin-bottom: 10px;
+            }
+            
+            .keyword-count {
+                font-size: 0.85em;
+                margin-bottom: 12px;
+            }
+            
+            .keyword-btn,
+            .file-input-label {
+                padding: 12px 16px;
+                font-size: 0.9em;
+            }
+            
+            .arduino-status {
+                padding: 12px;
+            }
+            
+            .arduino-status > div {
+                flex-direction: column !important;
+            }
+            
+            #arduinoPort {
+                width: 100%;
+            }
+            
+            .tabs {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            
+            .tab {
+                padding: 10px 16px;
+                font-size: 0.9em;
+            }
+            
+            input[type="url"],
+            textarea {
+                padding: 12px;
+                font-size: 0.95em;
+            }
+            
+            textarea {
+                min-height: 150px;
+            }
+            
+            button {
+                padding: 12px;
+                font-size: 1em;
+            }
+            
+            .scores {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .keywords-list {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .keywords-group {
+                padding: 12px;
+            }
+            
+            .keywords-tags {
+                gap: 6px;
+            }
+            
+            .keyword-tag {
+                padding: 4px 10px;
+                font-size: 0.8em;
+            }
+            
+            .result {
+                padding: 20px;
+            }
+            
+            .tendency {
+                font-size: 1.5em;
+            }
+            
+            .confidence {
+                font-size: 1em;
+            }
+            
+            .score-value {
+                font-size: 2em;
+            }
+            
+            .article-text-box {
+                padding: 15px;
+                max-height: 300px;
+                font-size: 0.9em;
+            }
+            
+            .info {
+                padding: 12px;
+                font-size: 0.85em;
+            }
+        }
+        
+        /* Extra small mobile devices */
+        @media screen and (max-width: 480px) {
+            .container {
+                padding: 15px;
+                margin: 5px;
+            }
+            
+            h1 {
+                font-size: 1.5em;
+            }
+            
+            .keywords-management {
+                padding: 12px;
+            }
+            
+            .keyword-group {
+                padding: 12px;
+            }
+            
+            .keyword-btn,
+            .file-input-label {
+                padding: 10px 12px;
+                font-size: 0.85em;
+            }
+            
+            .tab {
+                padding: 8px 12px;
+                font-size: 0.85em;
+            }
+            
+            .tendency {
+                font-size: 1.3em;
+            }
+            
+            .score-value {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗳️ 정치편향무드등</h1>
+        <p class="subtitle">뉴스 기사를 분석하여 정치적 성향을 판단합니다</p>
+        
+        <div class="keywords-management">
+            <div class="keywords-management-title">📚 키워드 관리</div>
+            
+            <div class="arduino-status" id="arduinoStatus" style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 10px;">
+                <div style="font-weight: 600; margin-bottom: 10px; text-align: center;">무드등 연결상태</div>
+                <div id="arduinoStatusText" style="text-align: center; margin-bottom: 15px;">확인 중...</div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+                    <div style="display: flex; gap: 10px; align-items: center; width: 100%; max-width: 400px;">
+                        <label for="arduinoPort" style="font-weight: 600; min-width: 80px;">포트 선택:</label>
+                        <select id="arduinoPort" style="flex: 1; padding: 8px; border: 2px solid #ddd; border-radius: 5px; font-size: 0.95em;">
+                            <option value="">자동 감지</option>
+                        </select>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                        <button onclick="checkArduinoStatus()" style="padding: 8px 16px; background: #ffc107; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">새로고침</button>
+                        <button onclick="connectArduino()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">연결</button>
+                        <button onclick="disconnectArduino()" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">연결 해제</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="keywords-buttons">
+                <div class="keyword-group progressive">
+                    <div class="keyword-group-title">진보 키워드</div>
+                    <div class="keyword-count" id="progressiveCount">로딩 중...</div>
+                    <div class="keyword-actions">
+                        <div class="file-input-wrapper">
+                            <input type="file" id="progressiveFile" accept=".xlsx,.json" onchange="uploadKeywords('progressive', this.files[0])">
+                            <label for="progressiveFile" class="file-input-label">📤 Excel/JSON 업로드</label>
+                        </div>
+                        <button class="keyword-btn" onclick="downloadKeywords('progressive')">📥 JSON 다운로드</button>
+                        <div class="upload-success" id="progressiveSuccess">✓ 업로드 성공!</div>
+                    </div>
+                </div>
+                
+                <div class="keyword-group conservative">
+                    <div class="keyword-group-title">보수 키워드</div>
+                    <div class="keyword-count" id="conservativeCount">로딩 중...</div>
+                    <div class="keyword-actions">
+                        <div class="file-input-wrapper">
+                            <input type="file" id="conservativeFile" accept=".xlsx,.json" onchange="uploadKeywords('conservative', this.files[0])">
+                            <label for="conservativeFile" class="file-input-label">📤 Excel/JSON 업로드</label>
+                        </div>
+                        <button class="keyword-btn" onclick="downloadKeywords('conservative')">📥 JSON 다운로드</button>
+                        <div class="upload-success" id="conservativeSuccess">✓ 업로드 성공!</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-mode="url">🌐 URL에서</button>
+            <button class="tab" data-mode="text">📝 텍스트 붙여넣기</button>
+        </div>
+        
+        <form id="analyzeForm">
+            <div class="input-mode active" id="urlMode">
+                <div class="input-group">
+                    <label for="url">뉴스 기사 URL:</label>
+                    <input type="url" id="url" name="url" placeholder="https://example.com/news-article">
+                </div>
+            </div>
+            
+            <div class="input-mode" id="textMode">
+                <div class="input-group">
+                    <label for="text">기사 텍스트 붙여넣기:</label>
+                    <textarea id="text" name="text" placeholder="전체 기사 텍스트를 여기에 붙여넣으세요..."></textarea>
+                    <div class="char-count"><span id="charCount">0</span> 글자</div>
+                </div>
+            </div>
+            
+            <button type="submit" id="submitBtn">기사 분석</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            ⏳ 기사 분석 중...
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <div class="result-header">
+                <div class="tendency" id="tendency"></div>
+                <div class="confidence" id="confidence"></div>
+            </div>
+            
+            <div class="scores">
+                <div class="score-card progressive">
+                    <div class="score-label">진보 점수</div>
+                    <div class="score-value" id="progressiveScore">0</div>
+                </div>
+                <div class="score-card conservative">
+                    <div class="score-label">보수 점수</div>
+                    <div class="score-value" id="conservativeScore">0</div>
+                </div>
+            </div>
+            
+            <div class="keywords-section">
+                <div class="keywords-title">매칭된 키워드</div>
+                <div class="keywords-list">
+                    <div class="keywords-group progressive">
+                        <div class="keywords-group-title">진보 키워드</div>
+                        <div class="keywords-tags" id="progressiveKeywords"></div>
+                    </div>
+                    <div class="keywords-group conservative">
+                        <div class="keywords-group-title">보수 키워드</div>
+                        <div class="keywords-tags" id="conservativeKeywords"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="info">
+                <strong>기사 정보:</strong>
+                <div>URL: <span id="articleUrl"></span></div>
+                <div>길이: <span id="articleLength"></span> 글자</div>
+            </div>
+            
+            <div class="article-text-section">
+                <div class="article-text-title">📄 수집된 기사 내용</div>
+                <div class="article-text-box" id="articleText"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('analyzeForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+        const error = document.getElementById('error');
+        const tabs = document.querySelectorAll('.tab');
+        const urlMode = document.getElementById('urlMode');
+        const textMode = document.getElementById('textMode');
+        const urlInput = document.getElementById('url');
+        const textInput = document.getElementById('text');
+        const charCount = document.getElementById('charCount');
+        let currentMode = 'url';
+        
+        // Tab switching
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const mode = tab.dataset.mode;
+                currentMode = mode;
+                
+                // Update tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update input modes
+                urlMode.classList.toggle('active', mode === 'url');
+                textMode.classList.toggle('active', mode === 'text');
+                
+                // Clear inputs when switching
+                if (mode === 'url') {
+                    textInput.value = '';
+                } else {
+                    urlInput.value = '';
+                }
+            });
+        });
+        
+        // Character count for textarea
+        textInput.addEventListener('input', () => {
+            charCount.textContent = textInput.value.length.toLocaleString();
+        });
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = urlInput.value.trim();
+            const text = textInput.value.trim();
+            
+            // Validate input based on mode
+            if (currentMode === 'url' && !url) {
+                error.textContent = 'URL을 입력해주세요';
+                error.classList.add('show');
+                return;
+            }
+            
+            if (currentMode === 'text' && !text) {
+                error.textContent = '기사 텍스트를 붙여넣어주세요';
+                error.classList.add('show');
+                return;
+            }
+            
+            // Reset UI
+            result.classList.remove('show');
+            error.classList.remove('show');
+            loading.classList.add('show');
+            submitBtn.disabled = true;
+            
+            try {
+                const requestBody = currentMode === 'url' 
+                    ? { url: url } 
+                    : { text: text };
+                
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || '오류가 발생했습니다');
+                }
+                
+                // Display results
+                displayResults(data);
+                
+            } catch (err) {
+                error.textContent = err.message;
+                error.classList.add('show');
+            } finally {
+                loading.classList.remove('show');
+                submitBtn.disabled = false;
+            }
+        });
+        
+        function displayResults(data) {
+            // Set tendency (translate to Korean)
+            const tendencyEl = document.getElementById('tendency');
+            const tendencyMap = {
+                'Progressive': '진보',
+                'Conservative': '보수',
+                'Neutral': '중립',
+                'Mixed': '혼합',
+                'Unknown': '알 수 없음'
+            };
+            tendencyEl.textContent = tendencyMap[data.tendency] || data.tendency;
+            tendencyEl.className = 'tendency ' + data.tendency.toLowerCase();
+            
+            // Set confidence
+            document.getElementById('confidence').textContent = 
+                `신뢰도: ${data.confidence}%`;
+            
+            // Set scores
+            document.getElementById('progressiveScore').textContent = data.progressive_score;
+            document.getElementById('conservativeScore').textContent = data.conservative_score;
+            
+            // Display Arduino value if available
+            if (data.arduino_value !== undefined) {
+                // Add Arduino value display (you can add this to the UI if needed)
+                console.log(`Arduino Value: ${data.arduino_value}`);
+            }
+            
+            // Set keywords
+            const progKeywordsEl = document.getElementById('progressiveKeywords');
+            const consKeywordsEl = document.getElementById('conservativeKeywords');
+            
+            if (data.matched_keywords.progressive.length > 0) {
+                progKeywordsEl.innerHTML = data.matched_keywords.progressive
+                    .map(kw => `<span class="keyword-tag">${kw}</span>`)
+                    .join('');
+            } else {
+                progKeywordsEl.innerHTML = '<span class="keyword-tag">없음</span>';
+            }
+            
+            if (data.matched_keywords.conservative.length > 0) {
+                consKeywordsEl.innerHTML = data.matched_keywords.conservative
+                    .map(kw => `<span class="keyword-tag">${kw}</span>`)
+                    .join('');
+            } else {
+                consKeywordsEl.innerHTML = '<span class="keyword-tag">없음</span>';
+            }
+            
+            // Set article info
+            const sourceLabel = data.source && data.source.startsWith('http') ? 'URL' : '출처';
+            const sourceValue = data.source && data.source.startsWith('http') ? data.source : '붙여넣은 텍스트';
+            document.getElementById('articleUrl').innerHTML = `<strong>${sourceLabel}:</strong> ${sourceValue}`;
+            document.getElementById('articleLength').textContent = data.article_length.toLocaleString();
+            
+            // Display scraped article text
+            const articleTextEl = document.getElementById('articleText');
+            if (data.article_text) {
+                // Clean up the text a bit - remove excessive whitespace but preserve paragraphs
+                const cleanedText = data.article_text
+                    .replace(/\n{3,}/g, '\n\n')  // Replace 3+ newlines with 2
+                    .replace(/[ \t]+/g, ' ')     // Replace multiple spaces/tabs with single space
+                    .trim();
+                articleTextEl.textContent = cleanedText || '내용을 추출할 수 없습니다.';
+            } else {
+                articleTextEl.textContent = '사용 가능한 내용이 없습니다.';
+            }
+            
+            // Show result
+            result.classList.add('show');
+        }
+        
+        // Load keyword counts on page load
+        async function loadKeywordCounts() {
+            try {
+                const response = await fetch('/keywords/count');
+                const data = await response.json();
+                document.getElementById('progressiveCount').textContent = `${data.progressive_count}개 키워드 로드됨`;
+                document.getElementById('conservativeCount').textContent = `${data.conservative_count}개 키워드 로드됨`;
+            } catch (err) {
+                console.error('Error loading keyword counts:', err);
+            }
+        }
+        
+        // Upload keywords file
+        async function uploadKeywords(type, file) {
+            if (!file) {
+                alert('먼저 파일을 선택해주세요');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('type', type);
+            
+            const successEl = document.getElementById(`${type}Success`);
+            const countEl = document.getElementById(`${type}Count`);
+            
+            // Show loading state
+            countEl.textContent = '업로드 중...';
+            
+            try {
+                const response = await fetch('/keywords/upload', {
+                    method: 'POST',
+                    body: formData
+                    // Don't set Content-Type header - browser will set it with boundary
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || `업로드 실패 (상태 코드: ${response.status})`);
+                }
+                
+                // Show success message
+                successEl.classList.add('show');
+                setTimeout(() => {
+                    successEl.classList.remove('show');
+                }, 3000);
+                
+                // Update count
+                countEl.textContent = `${data.count}개 키워드 로드됨`;
+                
+                // Reset file input
+                document.getElementById(`${type}File`).value = '';
+                
+            } catch (err) {
+                countEl.textContent = '오류 - 다시 시도해주세요';
+                alert('파일 업로드 오류: ' + err.message);
+                console.error('Upload error:', err);
+            }
+        }
+        
+        // Download keywords as JSON
+        async function downloadKeywords(type) {
+            try {
+                const response = await fetch(`/keywords/download/${type}`);
+                const data = await response.json();
+                
+                // Create download link
+                const blob = new Blob([JSON.stringify(data.keywords, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${type}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+            } catch (err) {
+                alert('키워드 다운로드 오류: ' + err.message);
+            }
+        }
+        
+        // Load counts when page loads
+        loadKeywordCounts();
+        
+        // Check Arduino status on page load
+        checkArduinoStatus();
+        
+        // Check Arduino status and update port list
+        async function checkArduinoStatus() {
+            try {
+                const response = await fetch('/arduino/status');
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('arduinoStatusText');
+                const portSelect = document.getElementById('arduinoPort');
+                
+                // Update port dropdown
+                portSelect.innerHTML = '<option value="">자동 감지</option>';
+                if (data.available_ports && data.available_ports.length > 0) {
+                    data.available_ports.forEach(port => {
+                        const option = document.createElement('option');
+                        option.value = port.device;
+                        option.textContent = `${port.device} - ${port.description || 'Unknown'}`;
+                        portSelect.appendChild(option);
+                    });
+                } else {
+                    const option = document.createElement('option');
+                    option.value = "";
+                    option.textContent = "사용 가능한 포트 없음";
+                    option.disabled = true;
+                    portSelect.appendChild(option);
+                }
+                
+                // Update status display
+                if (data.connected) {
+                    statusEl.innerHTML = `✓ 연결됨: ${data.port}`;
+                    document.getElementById('arduinoStatus').style.background = '#d4edda';
+                    document.getElementById('arduinoStatus').style.borderColor = '#28a745';
+                    
+                    // Select connected port in dropdown
+                    portSelect.value = data.port;
+                } else {
+                    statusEl.innerHTML = `⚠ 연결 안 됨`;
+                    document.getElementById('arduinoStatus').style.background = '#fff3cd';
+                    document.getElementById('arduinoStatus').style.borderColor = '#ffc107';
+                }
+            } catch (err) {
+                document.getElementById('arduinoStatusText').innerHTML = '오류: ' + err.message;
+            }
+        }
+        
+        // Connect to Arduino
+        async function connectArduino() {
+            const portSelect = document.getElementById('arduinoPort');
+            const selectedPort = portSelect.value;
+            
+            try {
+                const requestBody = {};
+                if (selectedPort) {
+                    requestBody.port = selectedPort;
+                }
+                
+                const response = await fetch('/arduino/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Arduino 연결 성공: ' + data.port);
+                    checkArduinoStatus();
+                } else {
+                    alert('연결 실패: ' + (data.error || '알 수 없는 오류'));
+                }
+            } catch (err) {
+                alert('연결 오류: ' + err.message);
+            }
+        }
+        
+        // Disconnect Arduino
+        async function disconnectArduino() {
+            try {
+                const response = await fetch('/arduino/disconnect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Arduino 연결 해제됨');
+                    checkArduinoStatus();
+                } else {
+                    alert('연결 해제 실패: ' + (data.error || '알 수 없는 오류'));
+                }
+            } catch (err) {
+                alert('연결 해제 오류: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
+
