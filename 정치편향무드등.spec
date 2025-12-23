@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('templates', 'templates'), ('progressive.json', '.'), ('conservative.json', '.'), ('progressive.xlsx', '.'), ('conservative.xlsx', '.')]
+datas = [('templates', 'templates'), ('progressive.xlsx', '.'), ('conservative.xlsx', '.')]
 binaries = []
 hiddenimports = ['flask', 'werkzeug', 'requests', 'bs4', 'openpyxl', 'serial', 'serial.tools.list_ports']
 tmp_ret = collect_all('flask')

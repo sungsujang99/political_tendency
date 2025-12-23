@@ -12,13 +12,25 @@ import shutil
 print("Cleaning previous builds...")
 for folder in ['build', 'dist', '__pycache__']:
     if os.path.exists(folder):
-        shutil.rmtree(folder)
-        print(f"  Removed {folder}/")
+        try:
+            shutil.rmtree(folder)
+            print(f"  Removed {folder}/")
+        except PermissionError:
+            print(f"  Warning: Could not remove {folder}/ (file may be in use)")
+            print(f"           Please close any programs using files in {folder}/")
+            print(f"           PyInstaller will try to overwrite files...")
+        except Exception as e:
+            print(f"  Warning: Could not remove {folder}/: {e}")
 
 # Remove old spec file if exists
 if os.path.exists('app.spec'):
-    os.remove('app.spec')
-    print("  Removed app.spec")
+    try:
+        os.remove('app.spec')
+        print("  Removed app.spec")
+    except PermissionError:
+        print("  Warning: Could not remove app.spec (file may be in use)")
+    except Exception as e:
+        print(f"  Warning: Could not remove app.spec: {e}")
 
 print("\nBuilding executable with PyInstaller (console version)...\n")
 
@@ -29,9 +41,7 @@ args = [
     '--onefile',                 # Single executable file
     '--console',                 # Show console window (for debugging)
     '--add-data=templates;templates',  # Include templates folder
-    '--add-data=progressive.json;.',   # Include keyword files
-    '--add-data=conservative.json;.',
-    '--add-data=progressive.xlsx;.',
+    '--add-data=progressive.xlsx;.',   # Include keyword files
     '--add-data=conservative.xlsx;.',
     '--hidden-import=flask',     # Ensure Flask is included
     '--hidden-import=werkzeug',
@@ -57,4 +67,5 @@ except Exception as e:
     print(f"\nError building executable: {e}")
     import traceback
     traceback.print_exc()
+
 

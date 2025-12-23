@@ -11,15 +11,22 @@ import shutil
 print("Cleaning previous builds...")
 for folder in ['build', 'dist', '__pycache__']:
     if os.path.exists(folder):
-        shutil.rmtree(folder)
-        print(f"  Removed {folder}/")
+        try:
+            shutil.rmtree(folder)
+            print(f"  Removed {folder}/")
+        except PermissionError:
+            print(f"  Warning: Could not remove {folder}/ (file may be in use)")
+            print(f"           Please close any programs using files in {folder}/")
+            print(f"           PyInstaller will try to overwrite files...")
+        except Exception as e:
+            print(f"  Warning: Could not remove {folder}/: {e}")
 
 print("\nBuilding executable using spec file...\n")
 
 try:
     # Use the spec file for more control
     PyInstaller.__main__.run([
-        'app.spec',
+        '정치편향무드등.spec',
         '--clean',
         '--noconfirm',
     ])
@@ -32,4 +39,5 @@ except Exception as e:
     print(f"\nError building executable: {e}")
     import traceback
     traceback.print_exc()
+
 

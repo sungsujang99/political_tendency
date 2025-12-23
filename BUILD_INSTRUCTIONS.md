@@ -79,3 +79,7 @@ python build_exe.py
 - 콘솔 버전(`build_exe_console.py`)으로 빌드하여 오류 메시지 확인
 - 실행 파일과 같은 폴더에 `templates/` 폴더와 키워드 파일이 있는지 확인
 
+
+
+
+

@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import sys
+import atexit
+import signal
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import requests
@@ -34,36 +36,41 @@ except ImportError:
     print("Warning: openpyxl not installed. Excel file support disabled. Install with: pip install openpyxl")
 
 # Handle PyInstaller bundle path
+VERSION = "1.3.0"
+
+app = Flask(__name__)
 if getattr(sys, 'frozen', False):
     # Running as compiled executable
     base_path = sys._MEIPASS
     template_folder = os.path.join(base_path, 'templates')
-    # Verify template folder exists
-    if not os.path.exists(template_folder):
-        print(f"WARNING: Template folder not found at {template_folder}")
-        if os.path.exists(base_path):
-            try:
-                available = os.listdir(base_path)
-                print(f"Available in bundle: {available}")
-            except:
-                pass
-        # Try alternative paths
-        alt_paths = [
-            os.path.join(base_path, 'templates'),
-            os.path.join(os.path.dirname(sys.executable), 'templates'),
-            os.path.join(os.getcwd(), 'templates')
-        ]
-        for alt_path in alt_paths:
-            if os.path.exists(alt_path):
-                template_folder = alt_path
-                print(f"Found templates at: {template_folder}")
-                break
-        else:
-            print("ERROR: Could not find templates folder!")
+    # ... (verification logic) ...
     app = Flask(__name__, template_folder=template_folder)
 else:
     # Running as script
     app = Flask(__name__)
+
+# Global error handler for 500 errors
+@app.errorhandler(500)
+def internal_error(error):
+    import traceback
+    err_trace = traceback.format_exc()
+    print(f"[DEBUG] 500 ERROR CAUGHT: {error}", flush=True)
+    print(err_trace, flush=True)
+    return jsonify({'error': '서버 내부 오류가 발생했습니다.', 'details': str(error)}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    err_trace = traceback.format_exc()
+    print(f"[DEBUG] UNHANDLED EXCEPTION: {e}", flush=True)
+    print(err_trace, flush=True)
+    return jsonify({'error': '예기치 못한 오류가 발생했습니다.', 'details': str(e)}), 500
+
+# Configure logging to ensure debug output is visible
+import logging
+logging.basicConfig(level=logging.DEBUG)
+app.logger.setLevel(logging.DEBUG)
+app.logger.info("Flask app initialized")
 
 # Global serial connection
 arduino_serial = None
@@ -118,6 +125,12 @@ def init_arduino_serial(port=None, baudrate=9600):
         arduino_serial.reset_input_buffer()
         arduino_serial.reset_output_buffer()
         print(f"Arduino connected on {port} at {baudrate} baud")
+        
+        # Wait a moment for Arduino to be ready, then send neutral value (500)
+        import time
+        time.sleep(0.5)  # Give Arduino time to initialize
+        send_to_arduino(500)
+        
         return True
     except serial.SerialException as e:
         print(f"Serial error connecting to Arduino: {str(e)}")
@@ -136,7 +149,16 @@ def send_to_arduino(value):
         return False
     
     # Check if connection is valid
-    if arduino_serial is None or not arduino_serial.is_open:
+    is_connected = False
+    try:
+        if arduino_serial is not None:
+            is_connected = arduino_serial.is_open
+    except (AttributeError, ValueError, OSError) as e:
+        print(f"Serial port in invalid state: {e}")
+        arduino_serial = None
+        is_connected = False
+    
+    if not is_connected:
         print("Arduino serial connection not available, attempting to reconnect...")
         # Try to reconnect if we have a port
         if serial_port:
@@ -145,6 +167,7 @@ def send_to_arduino(value):
                 arduino_serial.reset_input_buffer()
                 arduino_serial.reset_output_buffer()
                 print(f"Reconnected to Arduino on {serial_port}")
+                # Continue to send the requested value after reconnection
             except Exception as e:
                 print(f"Failed to reconnect to Arduino: {e}")
                 arduino_serial = None
@@ -159,14 +182,17 @@ def send_to_arduino(value):
         # Send value as integer string with newline (compatible with Serial.parseInt())
         # Format: "750\n" - Arduino's Serial.parseInt() will read this correctly
         message = f"{value}\n"
-        arduino_serial.write(message.encode('utf-8'))
-        arduino_serial.flush()
         
-        # Small delay to ensure data is sent
+        # Send the command 10 times with 0.1 second intervals to ensure it's received
         import time
-        time.sleep(0.01)
+        for i in range(10):
+            arduino_serial.write(message.encode('utf-8'))
+            arduino_serial.flush()
+            print(f"[{i+1}/10] Sending to Arduino: {value}")
+            if i < 9:  # Don't delay after the last send
+                time.sleep(0.1)
         
-        print(f"Sent to Arduino: {value} (format: '{message.strip()}')")
+        print(f"Completed sending {value} to Arduino (sent 10 times)")
         return True
     except serial.SerialException as e:
         print(f"Serial error sending to Arduino: {str(e)}")
@@ -180,6 +206,39 @@ def send_to_arduino(value):
     except Exception as e:
         print(f"Error sending to Arduino: {str(e)}")
         return False
+
+def cleanup_arduino():
+    """Cleanup function to disconnect Arduino on program exit"""
+    global arduino_serial, serial_port
+    
+    if SERIAL_SUPPORT and arduino_serial is not None:
+        try:
+            if arduino_serial.is_open:
+                arduino_serial.close()
+                print(f"Arduino disconnected from {serial_port}")
+            arduino_serial = None
+            serial_port = None
+        except Exception as e:
+            print(f"Error disconnecting Arduino during cleanup: {e}")
+
+# Register cleanup function to run on exit
+atexit.register(cleanup_arduino)
+
+# Register signal handlers for graceful shutdown
+def signal_handler(signum, frame):
+    """Handle interrupt signals (Ctrl+C, etc.)"""
+    print("\n\nShutting down server...")
+    cleanup_arduino()
+    sys.exit(0)
+
+# Register signal handlers (SIGINT works on both Windows and Unix)
+signal.signal(signal.SIGINT, signal_handler)
+# SIGTERM is Unix-only, so wrap in try-except for Windows compatibility
+try:
+    signal.signal(signal.SIGTERM, signal_handler)
+except AttributeError:
+    # SIGTERM not available on Windows
+    pass
 
 # Load keywords from Excel or JSON files
 def load_keywords():
@@ -355,59 +414,142 @@ def load_keywords():
     return progressive_keywords, conservative_keywords
 
 def scrape_article(url):
-    """Scrape article content from a given URL"""
-    response = None
+    """Scrape article content from a given URL with extreme resilience"""
+    import sys
+    import urllib.request
+    import urllib.error
+    import ssl
+    import gzip
+    import zlib
+    
+    print(f"[DEBUG] ===== scrape_article START: {url} =====", flush=True)
+    
     try:
+        # SSL Context
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # Headers
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'identity', # Explicitly request uncompressed
+            'Connection': 'keep-alive'
         }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        req = urllib.request.Request(url, headers=headers)
         
-        # Remove script and style elements
-        for script in soup(["script", "style", "meta", "link"]):
-            script.decompose()
+        print(f"[DEBUG] Step 1: Requesting URL...", flush=True)
+        with urllib.request.urlopen(req, timeout=15, context=ssl_context) as response:
+            raw_data = response.read()
+            info = response.info()
+            content_encoding = info.get('Content-Encoding', '').lower()
+            content_type = info.get('Content-Type', '')
+            
+            print(f"[DEBUG] Step 1 SUCCESS: Received {len(raw_data)} bytes", flush=True)
+            print(f"[DEBUG] Content-Type: {content_type}, Encoding: {content_encoding}", flush=True)
+            
+            # 2. Decompression (Only if absolutely necessary)
+            processed_data = raw_data
+            
+            # Check for GZIP magic numbers (1f 8b)
+            if raw_data.startswith(b'\x1f\x8b'):
+                print(f"[DEBUG] GZIP signature detected, decompressing...", flush=True)
+                try:
+                    processed_data = gzip.decompress(raw_data)
+                    print(f"[DEBUG] GZIP decompression success: {len(processed_data)} bytes", flush=True)
+                except Exception as e:
+                    print(f"[DEBUG] GZIP decompression FAILED: {e}", flush=True)
+            
+            # If not gzip, but header says deflate or we suspect it
+            elif content_encoding == 'deflate' or content_encoding == 'gzip':
+                print(f"[DEBUG] Content-Encoding header '{content_encoding}' found, attempting decompression...", flush=True)
+                try:
+                    # Try standard zlib
+                    processed_data = zlib.decompress(raw_data)
+                    print(f"[DEBUG] Zlib decompression success: {len(processed_data)} bytes", flush=True)
+                except Exception:
+                    try:
+                        # Try raw deflate
+                        processed_data = zlib.decompress(raw_data, -zlib.MAX_WBITS)
+                        print(f"[DEBUG] Raw Deflate decompression success: {len(processed_data)} bytes", flush=True)
+                    except Exception as e:
+                        print(f"[DEBUG] All decompression FAILED: {e}", flush=True)
+            
+            # 3. Decoding
+            html_content = None
+            
+            # Detect charset from header
+            charset = 'utf-8'
+            if 'charset=' in content_type.lower():
+                try:
+                    charset = content_type.lower().split('charset=')[-1].split(';')[0].strip()
+                except: pass
+            
+            encodings_to_try = [charset, 'utf-8', 'cp949', 'euc-kr', 'latin-1']
+            for enc in encodings_to_try:
+                if not enc: continue
+                try:
+                    html_content = processed_data.decode(enc, errors='replace')
+                    print(f"[DEBUG] Step 2 SUCCESS: Decoded with {enc}", flush=True)
+                    break
+                except Exception:
+                    continue
+            
+            if not html_content:
+                html_content = processed_data.decode('utf-8', errors='replace')
+                print(f"[DEBUG] Step 2: Last resort decode with utf-8(replace)", flush=True)
+
+        # 4. Parsing
+        print(f"[DEBUG] Step 3: Parsing with BeautifulSoup...", flush=True)
+        soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Try to find article content
+        # Clean soup
+        for el in soup(["script", "style", "meta", "link", "noscript", "header", "footer", "nav", "iframe"]):
+            el.decompose()
+            
+        # Target content
         article_text = ""
-        
-        # Common article selectors
-        article_selectors = [
-            'article',
-            '[role="article"]',
-            '.article-content',
-            '.article-body',
-            '.post-content',
-            '.entry-content',
-            'main',
-            '.content'
+        selectors = [
+            'article', '[role="article"]', '.article-content', '.article-body',
+            '#article-body', '#articleBody', '.news-content', '#newsct_article',
+            'main', '.content', '.post-content', '.entry-content'
         ]
         
-        for selector in article_selectors:
-            article = soup.select_one(selector)
-            if article:
-                article_text = article.get_text(separator=' ', strip=True)
-                break
-        
-        # If no article found, get all text from body
-        if not article_text:
+        for selector in selectors:
+            found = soup.select_one(selector)
+            if found:
+                text = found.get_text(separator=' ', strip=True)
+                if len(text) > 200:
+                    article_text = text
+                    print(f"[DEBUG] Found content with selector: {selector}", flush=True)
+                    break
+                    
+        if not article_text or len(article_text) < 200:
             body = soup.find('body')
             if body:
                 article_text = body.get_text(separator=' ', strip=True)
+                print(f"[DEBUG] Using body text as fallback", flush=True)
         
-        # Clean up soup to free memory
-        del soup
+        print(f"[DEBUG] ===== scrape_article SUCCESS: {len(article_text)} chars =====", flush=True)
         return article_text, None
-    except requests.exceptions.RequestException as e:
-        return None, f"Error fetching URL: {str(e)}"
+        
+    except urllib.error.HTTPError as e:
+        msg = f"HTTP Error {e.code}: {e.reason}"
+        print(f"[DEBUG] {msg}", flush=True)
+        return None, f"웹사이트 접근 실패: {msg}"
+    except urllib.error.URLError as e:
+        msg = f"URL Error: {e.reason}"
+        print(f"[DEBUG] {msg}", flush=True)
+        return None, f"URL 오류: {msg}"
     except Exception as e:
-        return None, f"Error parsing content: {str(e)}"
-    finally:
-        # Ensure response is closed to free resources
-        if response:
-            response.close()
+        import traceback
+        err_msg = str(e)
+        print(f"[DEBUG] CRITICAL ERROR in scrape_article: {err_msg}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return None, f"크롤링 중 오류 발생: {err_msg}"
 
 def is_korean_text(text):
     """Check if text contains Korean characters"""
@@ -571,61 +713,169 @@ def analyze_political_tendency(text, progressive_keywords, conservative_keywords
         }
     }
 
+# Global error handler for unhandled exceptions
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 Internal Server Error"""
+    import traceback
+    error_trace = traceback.format_exc()
+    print(f"[DEBUG] ===== 500 Internal Server Error Handler Called =====")
+    print(f"[DEBUG] Error: {error}")
+    print(f"[DEBUG] Traceback:")
+    print(error_trace)
+    return jsonify({'error': 'Internal server error occurred. Check server logs for details.'}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all unhandled exceptions"""
+    import traceback
+    error_trace = traceback.format_exc()
+    print(f"[DEBUG] ===== Global Exception Handler Called =====")
+    print(f"[DEBUG] Exception type: {type(e).__name__}")
+    print(f"[DEBUG] Exception message: {e}")
+    print(f"[DEBUG] Full traceback:")
+    print(error_trace)
+    return jsonify({'error': f'An error occurred: {str(e)}'}), 500
+
 @app.route('/')
 def index():
     """Main page"""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        print(f"Error rendering index.html: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error loading page: {str(e)}", 500
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     """Analyze a news URL or pasted text"""
-    data = request.get_json()
-    url = data.get('url', '').strip()
-    text = data.get('text', '').strip()
+    import sys
+    import logging
+    logger = logging.getLogger(__name__)
     
-    # Load keywords
-    progressive_keywords, conservative_keywords = load_keywords()
+    # Force output immediately
+    sys.stdout.flush()
+    sys.stderr.flush()
     
-    article_text = None
-    source = None
+    print("[DEBUG] ===== /analyze endpoint called =====", file=sys.stderr, flush=True)
+    print("[DEBUG] ===== /analyze endpoint called =====", flush=True)
+    logger.error("[DEBUG] ===== /analyze endpoint called =====")
+    app.logger.error("[DEBUG] ===== /analyze endpoint called =====")
     
-    # Check if text is provided (paste mode)
-    if text:
-        article_text = text
-        source = 'pasted_text'
-    # Otherwise, try to scrape from URL
-    elif url:
-        # Validate URL
-        try:
-            parsed = urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
-                return jsonify({'error': 'Invalid URL format'}), 400
-        except Exception:
-            return jsonify({'error': 'Invalid URL format'}), 400
+    try:
+        print("[DEBUG] Step A1: Getting request data", flush=True)
+        logger.error("[DEBUG] Step A1: Getting request data")
+        data = request.get_json()
+        if not data:
+            print("[DEBUG] Step A1 FAILED: No data provided")
+            return jsonify({'error': 'No data provided'}), 400
         
-        # Scrape article
-        article_text, error = scrape_article(url)
-        if error:
-            return jsonify({'error': error}), 500
-        source = url
-    else:
-        return jsonify({'error': 'Either URL or text content is required'}), 400
-    
-    # Analyze political tendency
-    result = analyze_political_tendency(article_text, progressive_keywords, conservative_keywords)
-    result['source'] = source
-    result['article_length'] = len(article_text) if article_text else 0
-    result['article_text'] = article_text if article_text else ''
-    
-    # Send Arduino value via serial (with error handling)
-    if SERIAL_SUPPORT:
+        url = data.get('url', '').strip()
+        text = data.get('text', '').strip()
+        print(f"[DEBUG] Step A1 SUCCESS: url='{url[:50]}...' if url else None, text length={len(text) if text else 0}")
+        
+        # Load keywords
+        print("[DEBUG] Step A2: Loading keywords")
         try:
-            send_to_arduino(result['arduino_value'])
+            progressive_keywords, conservative_keywords = load_keywords()
+            print(f"[DEBUG] Step A2 SUCCESS: Loaded {len(progressive_keywords)} progressive, {len(conservative_keywords)} conservative keywords")
         except Exception as e:
-            print(f"Warning: Failed to send to Arduino: {e}")
-            # Continue even if Arduino send fails
-    
-    return jsonify(result)
+            print(f"[DEBUG] Step A2 FAILED: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Error loading keywords: {str(e)}'}), 500
+        
+        article_text = None
+        source = None
+        
+        # Check if text is provided (paste mode)
+        if text:
+            print("[DEBUG] Step A3: Using pasted text")
+            article_text = text
+            source = 'pasted_text'
+            print(f"[DEBUG] Step A3 SUCCESS: Using pasted text, length={len(article_text)}")
+        # Otherwise, try to scrape from URL
+        elif url:
+            print(f"[DEBUG] Step A3: Scraping URL: {url}")
+            # Validate URL
+            try:
+                parsed = urlparse(url)
+                if not parsed.scheme or not parsed.netloc:
+                    print("[DEBUG] Step A3 FAILED: Invalid URL format")
+                    return jsonify({'error': 'Invalid URL format'}), 400
+                print("[DEBUG] Step A3.1: URL validation passed")
+            except Exception as e:
+                print(f"[DEBUG] Step A3.1 FAILED: {type(e).__name__}: {e}")
+                return jsonify({'error': f'Invalid URL format: {str(e)}'}), 400
+            
+            # Scrape article
+            print("[DEBUG] Step A3.2: Calling scrape_article()")
+            try:
+                article_text, error = scrape_article(url)
+                print(f"[DEBUG] Step A3.2: scrape_article returned, error={error is not None}")
+                if error:
+                    print(f"[DEBUG] Step A3.2 FAILED: {error}")
+                    # Check if it's a decompression error - return 400 instead of 500
+                    if "압축" in error or "decompressing" in error.lower() or "zlib" in error.lower() or "incorrect header" in error.lower():
+                        print("[DEBUG] Returning 400 for decompression error")
+                        return jsonify({'error': error}), 400
+                    # For other errors, return 500
+                    print("[DEBUG] Returning 500 for other error")
+                    return jsonify({'error': error}), 500
+                print(f"[DEBUG] Step A3.2 SUCCESS: Got article_text, length={len(article_text) if article_text else 0}")
+            except Exception as e:
+                error_str = str(e)
+                print(f"[DEBUG] Step A3.2 EXCEPTION: {type(e).__name__}: {error_str}")
+                import traceback
+                print("[DEBUG] Full traceback:")
+                traceback.print_exc()
+                # Check if it's a decompression error
+                if "decompressing" in error_str.lower() or "zlib" in error_str.lower() or "incorrect header" in error_str.lower() or "-3" in error_str:
+                    print("[DEBUG] Returning 400 for decompression error (exception)")
+                    return jsonify({'error': f'웹사이트 데이터 처리 중 오류가 발생했습니다: {error_str}'}), 400
+                print("[DEBUG] Returning 500 for other error (exception)")
+                return jsonify({'error': f'Error scraping article: {error_str}'}), 500
+            source = url
+        else:
+            print("[DEBUG] Step A3 FAILED: Neither URL nor text provided")
+            return jsonify({'error': 'Either URL or text content is required'}), 400
+        
+        # Analyze political tendency
+        print("[DEBUG] Step A4: Analyzing political tendency")
+        try:
+            result = analyze_political_tendency(article_text, progressive_keywords, conservative_keywords)
+            result['source'] = source
+            result['article_length'] = len(article_text) if article_text else 0
+            result['article_text'] = article_text if article_text else ''
+            print(f"[DEBUG] Step A4 SUCCESS: Tendency={result.get('tendency')}, Confidence={result.get('confidence')}")
+        except Exception as e:
+            print(f"[DEBUG] Step A4 FAILED: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Error analyzing article: {str(e)}'}), 500
+        
+        # Send Arduino value via serial (with error handling)
+        print("[DEBUG] Step A5: Sending to Arduino")
+        if SERIAL_SUPPORT:
+            try:
+                send_to_arduino(result['arduino_value'])
+                print(f"[DEBUG] Step A5 SUCCESS: Sent {result['arduino_value']} to Arduino")
+            except Exception as e:
+                print(f"[DEBUG] Step A5 WARNING: Failed to send to Arduino: {e}")
+                # Continue even if Arduino send fails
+        
+        print("[DEBUG] ===== /analyze endpoint SUCCESS =====")
+        return jsonify(result)
+    except Exception as e:
+        print(f"[DEBUG] ===== /analyze endpoint EXCEPTION (outer catch) =====")
+        print(f"[DEBUG] Exception type: {type(e).__name__}")
+        print(f"[DEBUG] Exception message: {e}")
+        import traceback
+        print("[DEBUG] Full traceback:")
+        traceback.print_exc()
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -704,7 +954,21 @@ def upload_keywords():
             base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(__file__)
-        keywords = []
+        
+        # Load existing keywords first (to stack/add to them)
+        json_path = os.path.join(base_dir, f'{keyword_type}.json')
+        existing_keywords = []
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    existing_keywords = json.load(f)
+                    if not isinstance(existing_keywords, list):
+                        existing_keywords = []
+            except Exception as e:
+                print(f"Warning: Could not load existing keywords: {e}")
+                existing_keywords = []
+        
+        new_keywords = []
         
         if file_ext == 'json':
             # Handle JSON file
@@ -713,21 +977,15 @@ def upload_keywords():
                 return jsonify({'error': 'JSON file must contain an array of keywords'}), 400
             
             # Split keywords if they contain delimiters
-            keywords = []
             for item in keywords_raw:
                 if isinstance(item, str):
                     # Split if it contains multiple keywords
                     split_kws = split_keywords(item)
-                    keywords.extend(split_kws)
+                    new_keywords.extend(split_kws)
                 else:
-                    keywords.append(str(item))
+                    new_keywords.append(str(item))
             
-            keywords = [kw for kw in keywords if kw]
-            
-            # Save JSON file
-            json_path = os.path.join(base_dir, f'{keyword_type}.json')
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(keywords, f, indent=2, ensure_ascii=False)
+            new_keywords = [kw for kw in new_keywords if kw]
             
         elif file_ext == 'xlsx':
             # Handle Excel file
@@ -743,7 +1001,6 @@ def upload_keywords():
             wb = load_workbook(temp_path, read_only=True)
             ws = wb.active
             
-            keywords = []
             # Read from all columns, not just the first one
             max_col = ws.max_column
             for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=max_col, values_only=True):
@@ -757,24 +1014,49 @@ def upload_keywords():
                             header_keywords = ['keyword', 'keywords', 'term', 'terms', keyword_type, 
                                               '키워드', '단어', '용어', '진보', '보수', '진보진영', '보수진영']
                             if kw_lower not in header_keywords and kw not in header_keywords:
-                                keywords.append(kw)
+                                new_keywords.append(kw)
             
-            keywords = [kw for kw in keywords if kw]
+            new_keywords = [kw for kw in new_keywords if kw]
             wb.close()
             
             # Save as JSON (also keep Excel if user wants)
             excel_path = os.path.join(base_dir, f'{keyword_type}.xlsx')
             shutil.move(temp_path, excel_path)
+        
+        # Combine existing and new keywords, removing duplicates
+        # For Korean keywords, use exact match; for others, use case-insensitive
+        combined_keywords = list(existing_keywords)  # Start with existing
+        
+        for new_kw in new_keywords:
+            # Check if keyword already exists
+            is_duplicate = False
+            for existing_kw in combined_keywords:
+                if is_korean_text(new_kw) or is_korean_text(existing_kw):
+                    # Exact match for Korean
+                    if new_kw == existing_kw:
+                        is_duplicate = True
+                        break
+                else:
+                    # Case-insensitive match for non-Korean
+                    if new_kw.lower() == existing_kw.lower():
+                        is_duplicate = True
+                        break
             
-            # Also save as JSON for compatibility
-            json_path = os.path.join(base_dir, f'{keyword_type}.json')
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(keywords, f, indent=2, ensure_ascii=False)
+            if not is_duplicate:
+                combined_keywords.append(new_kw)
+        
+        # Save combined keywords to JSON file
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(combined_keywords, f, indent=2, ensure_ascii=False)
+        
+        added_count = len(combined_keywords) - len(existing_keywords)
         
         return jsonify({
             'success': True,
-            'count': len(keywords),
-            'message': f'Successfully uploaded {len(keywords)} {keyword_type} keywords'
+            'count': len(combined_keywords),
+            'added': added_count,
+            'existing': len(existing_keywords),
+            'message': f'기존 {len(existing_keywords)}개 키워드에 {added_count}개 추가됨 (총 {len(combined_keywords)}개)'
         })
         
     except json.JSONDecodeError as e:
@@ -801,35 +1083,55 @@ def download_keywords(keyword_type):
 @app.route('/arduino/connect', methods=['POST'])
 def connect_arduino():
     """Manually connect to Arduino via serial"""
-    data = request.get_json() or {}
-    port = data.get('port', '').strip()
-    baudrate = data.get('baudrate', 9600)
-    
-    if not SERIAL_SUPPORT:
-        return jsonify({'error': 'pyserial not installed'}), 500
-    
-    if init_arduino_serial(port if port else None, baudrate):
-        return jsonify({
-            'success': True,
-            'port': serial_port,
-            'message': f'Arduino connected on {serial_port}'
-        })
-    else:
-        return jsonify({'error': 'Failed to connect to Arduino'}), 500
+    try:
+        data = request.get_json() or {}
+        port = data.get('port', '').strip()
+        baudrate = data.get('baudrate', 9600)
+        
+        if not SERIAL_SUPPORT:
+            return jsonify({'error': 'pyserial not installed'}), 500
+        
+        if init_arduino_serial(port if port else None, baudrate):
+            return jsonify({
+                'success': True,
+                'port': serial_port,
+                'message': f'Arduino connected on {serial_port}'
+            })
+        else:
+            return jsonify({'error': 'Failed to connect to Arduino. Check if the port is correct and Arduino is connected.'}), 500
+    except Exception as e:
+        print(f"Error connecting to Arduino: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error connecting to Arduino: {str(e)}'}), 500
 
 @app.route('/arduino/disconnect', methods=['POST'])
 def disconnect_arduino():
     """Disconnect Arduino serial connection"""
     global arduino_serial, serial_port
     
-    if arduino_serial and arduino_serial.is_open:
-        arduino_serial.close()
+    try:
+        port = None
+        if arduino_serial is not None:
+            try:
+                if arduino_serial.is_open:
+                    arduino_serial.close()
+            except (AttributeError, ValueError, OSError) as e:
+                print(f"Error closing serial port: {e}")
+            finally:
+                port = serial_port
+                arduino_serial = None
+                serial_port = None
+        
+        if port:
+            return jsonify({'success': True, 'message': f'Disconnected from {port}'})
+        else:
+            return jsonify({'error': 'No active connection'}), 400
+    except Exception as e:
+        print(f"Error disconnecting Arduino: {e}")
         arduino_serial = None
-        port = serial_port
         serial_port = None
-        return jsonify({'success': True, 'message': f'Disconnected from {port}'})
-    else:
-        return jsonify({'error': 'No active connection'}), 400
+        return jsonify({'error': f'Error disconnecting: {str(e)}'}), 500
 
 @app.route('/arduino/status', methods=['GET'])
 def arduino_status():
@@ -843,27 +1145,41 @@ def arduino_status():
             'available_ports': []
         })
     
-    if arduino_serial and arduino_serial.is_open:
-        return jsonify({
-            'connected': True,
-            'port': serial_port,
-            'message': f'Connected on {serial_port}'
-        })
-    else:
-        # List available ports
-        ports = []
-        if SERIAL_SUPPORT:
+    # Check connection status with error handling
+    try:
+        if arduino_serial is not None:
             try:
-                available_ports = serial.tools.list_ports.comports()
-                ports = [{'device': p.device, 'description': p.description} for p in available_ports]
-            except:
-                pass
-        
-        return jsonify({
-            'connected': False,
-            'message': 'Not connected',
-            'available_ports': ports
-        })
+                is_open = arduino_serial.is_open
+                if is_open:
+                    return jsonify({
+                        'connected': True,
+                        'port': serial_port,
+                        'message': f'Connected on {serial_port}'
+                    })
+            except (AttributeError, ValueError, OSError) as e:
+                # Serial port is in invalid state, reset it
+                print(f"Serial port in invalid state: {e}")
+                arduino_serial = None
+                serial_port = None
+    except Exception as e:
+        print(f"Error checking Arduino status: {e}")
+        arduino_serial = None
+        serial_port = None
+    
+    # List available ports
+    ports = []
+    if SERIAL_SUPPORT:
+        try:
+            available_ports = serial.tools.list_ports.comports()
+            ports = [{'device': p.device, 'description': p.description} for p in available_ports]
+        except Exception as e:
+            print(f"Error listing ports: {e}")
+    
+    return jsonify({
+        'connected': False,
+        'message': 'Not connected',
+        'available_ports': ports
+    })
 
 @app.route('/arduino/value', methods=['GET'])
 def get_arduino_value():
@@ -927,20 +1243,15 @@ if __name__ == '__main__':
         progressive_keywords, conservative_keywords = load_keywords()
         print(f"Loaded {len(progressive_keywords)} progressive keywords")
         print(f"Loaded {len(conservative_keywords)} conservative keywords")
-        
-        if len(progressive_keywords) == 0 and len(conservative_keywords) == 0:
-            print("\nWARNING: No keywords loaded!")
-            if getattr(sys, 'frozen', False):
-                exe_dir = os.path.dirname(sys.executable)
-                print(f"  Executable directory: {exe_dir}")
-                print(f"  Bundle directory: {sys._MEIPASS}")
-                print("  Please ensure keyword files (progressive.json/xlsx, conservative.json/xlsx) exist")
-                print("  in the same directory as the executable.")
     except Exception as e:
         print(f"ERROR loading keywords: {e}")
         import traceback
         traceback.print_exc()
         progressive_keywords, conservative_keywords = [], []
+        
+    print(f"==================================================")
+    print(f"Political Tendency Analyzer Server - v{VERSION}")
+    print(f"==================================================")
     
     # Get local IP address
     def get_local_ip():
@@ -1021,16 +1332,25 @@ if __name__ == '__main__':
         print("Server is running. Press Ctrl+C to stop.\n")
         # Use 0.0.0.0 to bind to all network interfaces (not just localhost)
         # This allows access from other devices on the network
-        app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+        try:
+            app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+        finally:
+            # Ensure Arduino is disconnected when server stops
+            cleanup_arduino()
     except OSError as e:
         if "Address already in use" in str(e) or "10048" in str(e):
             print(f"\nERROR: Port {port} is already in use!")
             print("Please close the application using port 5000 or change the port number.")
             print("\nTrying to start on port 5001 instead...")
             try:
-                app.run(debug=False, host='0.0.0.0', port=5001, threaded=True, use_reloader=False)
+                try:
+                    app.run(debug=False, host='0.0.0.0', port=5001, threaded=True, use_reloader=False)
+                finally:
+                    # Ensure Arduino is disconnected when server stops
+                    cleanup_arduino()
             except Exception as e2:
                 print(f"ERROR: Could not start on port 5001 either: {e2}")
+                cleanup_arduino()
         else:
             print(f"\nERROR: {e}")
             import traceback
